@@ -1,0 +1,477 @@
+<?xml version="1.0" encoding="utf-8"?>
+<model version="NetLogo 7.0.3" snapToGrid="true">
+  <code><![CDATA[
+
+globals [
+  total-fish
+  total-caught
+  year
+  month
+  season-open?
+  collapse?
+  global-max-fish
+  cached-sea-patches  
+]
+
+breed [ boats boat ]
+
+boats-own [
+  strategy
+  stock-bord
+  capacity
+  total-catch
+  catch-this-tick
+  going-to-port?
+  catch-rate
+]
+patches-own [
+  fish
+]
+
+to-report port-x  report 0   end
+to-report port-y  report -9  end
+
+
+to-report sea-patches
+  report cached-sea-patches
+end
+
+to setup
+  clear-all
+
+  set year         2000
+  set month        1
+  set season-open? true
+  set collapse?    false
+  set total-caught 0
+  set cached-sea-patches patches with [ pycor > -8 ]
+  ask patches [ set pcolor 95  set fish 0 ]
+  ask patches with [ pycor <= -8 ] [ set pcolor brown  set fish 0 ]
+  ask patch 0 -9 [ set pcolor 28 ]
+
+
+  ask cached-sea-patches [
+    set fish round (max-fish-per-patch * 0.6)
+    color-patch
+  ]
+
+  set global-max-fish count cached-sea-patches * max-fish-per-patch
+  set total-fish sum [ fish ] of cached-sea-patches
+
+
+  create-boats nb-cooperatif [
+    set strategy        "cooperative"
+    set color           blue
+    set shape           "boat top"
+    set size            2
+    set capacity        20
+    set catch-rate      2
+    set stock-bord      0
+    set total-catch     0
+    set catch-this-tick 0
+    set going-to-port?  false
+    move-to one-of cached-sea-patches
+  ]
+
+
+  create-boats nb-egoiste [
+    set strategy        "egoiste"
+    set color           red
+    set shape           "boat top"
+    set size            2
+    set capacity        20
+    set catch-rate      8
+    set stock-bord      0
+    set total-catch     0
+    set catch-this-tick 0
+    set going-to-port?  false
+    move-to one-of cached-sea-patches
+  ]
+
+  create-boats nb-aleatoire [
+    set strategy        "aleatoire"
+    set color           black
+    
+    set shape           "boat top"
+    set size            2
+    set capacity        20
+    set catch-rate      2 + random 4
+    set stock-bord      0
+    set total-catch     0
+    set catch-this-tick 0
+    set going-to-port?  false
+    move-to one-of cached-sea-patches
+  ]
+
+  reset-ticks
+end
+
+
+
+to go
+
+  if total-fish < 1 or stock-pct < 5 [ set collapse? true ]
+  if not collapse? [
+    set month (ticks mod 12) + 1
+    if month = 1 and ticks > 0 [ set year year + 1 ]
+    set season-open? (month >= 3 and month <= 10)
+  ]
+  ask boats [ set catch-this-tick 0 ]
+
+  ask boats [
+    ifelse collapse?
+      [ 
+        facexy port-x port-y
+        if distancexy port-x port-y > 1 [ forward 2 ] 
+      ]
+      [ 
+        ifelse going-to-port?
+          [ go-to-port ]
+          [ ifelse season-open?
+              [ do-fish ]
+              [ go-wait-port ] ] 
+      ]
+  ]
+
+
+  if not collapse? [
+    reproduce-fish
+  ]
+  set total-fish sum [ fish ] of cached-sea-patches
+  ask cached-sea-patches [ color-patch ]
+
+  tick
+end
+
+to reproduce-fish
+  ask cached-sea-patches [
+    if fish > 0 [
+      let g growth-rate * fish * (1 - fish / max-fish-per-patch)
+      set fish fish + g
+      if fish > max-fish-per-patch [ set fish max-fish-per-patch ]
+    ]
+  ]
+end
+
+to do-fish
+  if stock-bord >= capacity [ set going-to-port? true  stop ]
+
+  let caught 0
+  if strategy = "cooperative" [
+    let best max-one-of (neighbors with [pycor > -13]) [fish]
+    if best != nobody [ face best  forward 1 ]
+    if pycor < -7 [ set ycor -7 ]
+    
+    if fish > 3 [
+      set caught ifelse-value (catch-rate < (fish - 2)) [catch-rate] [fish - 2]
+      set fish fish - caught
+    ]
+  ]
+  if strategy = "egoiste" [
+    let best max-one-of (patches in-radius 8 with [pycor > -8]) [fish]
+    if best != nobody [ face best  forward 2 ]
+    if pycor < -7 [ set ycor -7 ]
+    
+    if fish > 0 [
+      set caught ifelse-value (catch-rate < fish) [catch-rate] [fish]
+      set fish fish - caught
+    ]
+  ]
+  if strategy = "aleatoire" [
+    right random 90 - 45
+    forward 1
+    if pycor < -7 [ set ycor -7 ]
+    
+    if fish > 0 and random 2 > 0 [
+      set caught ifelse-value (catch-rate < fish) [catch-rate] [fish]
+      set fish fish - caught
+    ]
+  ]
+
+  if caught < 0 [ set caught 0 ]
+  set stock-bord      stock-bord      + caught
+  set total-catch     total-catch     + caught
+  set catch-this-tick catch-this-tick + caught
+  set total-caught    total-caught    + caught
+end
+
+to go-to-port
+  facexy port-x port-y
+  forward 2
+  if distancexy port-x port-y < 2 [
+    set total-caught   total-caught + stock-bord
+    set stock-bord     0
+    set going-to-port? false
+    move-to one-of cached-sea-patches with [pycor > 2]
+  ]
+end
+
+to go-wait-port
+  facexy port-x port-y
+  if distancexy port-x port-y > 1 [ forward 1.5 ]
+end
+
+to color-patch
+
+  if fish <= 0 [
+    set pcolor 95
+    stop 
+  ]
+
+  let ratio fish / max-fish-per-patch
+  if ratio > 1 [ set ratio 1 ]
+
+  ifelse ratio < 0.25 [
+    set pcolor 97         
+  ][
+    ifelse ratio < 0.5 [
+      set pcolor 44       
+    ][
+      ifelse ratio < 0.75 [
+        set pcolor 64     
+      ][
+        set pcolor 55     
+      ]
+    ]
+  ]
+end
+to-report total-fish-report  report round total-fish  end
+to-report stock-pct
+  if global-max-fish = 0 [ report 0 ]
+  report precision (total-fish / global-max-fish * 100) 1
+end
+
+to-report season-status
+  ifelse season-open? [ report "OUVERTE" ] [ report "FERMEE" ]
+end
+
+to-report month-name
+  let names (list "Jan" "Fev" "Mar" "Avr" "Mai" "Jun"
+                  "Jul" "Aou" "Sep" "Oct" "Nov" "Dec")
+  report item (month - 1) names
+end
+
+to-report status-stock
+  if stock-pct > 60 [ report "BON"      ]
+  if stock-pct > 30 [ report "MOYEN"    ]
+  if stock-pct > 5  [ report "CRITIQUE" ]
+  report "EFFONDRE !"
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+to-report boats-at-port  report count boats with [going-to-port?]  end
+to-report coop-catch     report sum [total-catch]     of boats with [strategy = "cooperative"]  end
+to-report ego-catch      report sum [total-catch]     of boats with [strategy = "egoiste"]      end
+to-report alea-catch     report sum [total-catch]     of boats with [strategy = "aleatoire"]    end
+to-report coop-tick      report sum [catch-this-tick] of boats with [strategy = "cooperative"]  end
+to-report ego-tick       report sum [catch-this-tick] of boats with [strategy = "egoiste"]      end
+to-report alea-tick      report sum [catch-this-tick] of boats with [strategy = "aleatoire"]    end
+]]></code>
+  <widgets>
+    <view x="320" wrappingAllowedX="false" y="15" frameRate="30.0" minPycor="-10" height="429" showTickCounter="true" patchSize="20.24" fontSize="10" wrappingAllowedY="false" width="429" tickCounterLabel="ticks" maxPycor="10" updateMode="0" maxPxcor="10" minPxcor="-10"></view>
+    <plot x="760" autoPlotX="true" yMax="100.0" autoPlotY="true" y="320" xMin="0.0" height="210" legend="true" xMax="10.0" yMin="0.0" width="580" display="Captures cumulees par strategie">
+      <setup></setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="Cooperatif" color="-13345367" legend="true">
+        <setup></setup>
+        <update>plot coop-catch</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Egoiste" color="-2674135" legend="true">
+        <setup></setup>
+        <update>plot ego-catch</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Aleatoire" color="-955883" legend="true">
+        <setup></setup>
+        <update>plot alea-catch</update>
+      </pen>
+    </plot>
+    <plot x="1075" autoPlotX="true" yMax="5000.0" autoPlotY="true" y="0" xMin="0.0" height="310" legend="true" xMax="10.0" yMin="0.0" width="265" display="Nombre total de poissons">
+      <setup></setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="Poissons (nombre)" color="-13690341" legend="true">
+        <setup></setup>
+        <update>plot total-fish-report</update>
+      </pen>
+    </plot>
+    <plot x="760" autoPlotX="true" yMax="100.0" autoPlotY="false" y="0" xMin="0.0" height="310" legend="true" xMax="10.0" yMin="0.0" width="315" display="Evolution du stock (%)">
+      <setup>set-plot-y-range 0 100</setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="Stock (%)" color="-13345367" legend="true">
+        <setup></setup>
+        <update>plot stock-pct</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Seuil critique (30%)" color="-2674135" legend="true">
+        <setup></setup>
+        <update>plot 30</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Seuil effondrement (5%)" color="-65536" legend="true">
+        <setup></setup>
+        <update>plot 5</update>
+      </pen>
+    </plot>
+    <button x="5" y="10" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="150">setup</button>
+    <button x="160" y="10" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="150">go</button>
+    <monitor x="620" precision="0" y="465" height="60" fontSize="11" width="115" display="Statut">status-stock</monitor>
+    <monitor x="315" precision="0" y="465" height="60" fontSize="11" width="100" display="Aleatoire">alea-catch</monitor>
+    <monitor x="165" precision="0" y="465" height="60" fontSize="11" width="100" display="Egoiste">ego-catch</monitor>
+    <monitor x="10" precision="0" y="465" height="60" fontSize="11" width="100" display="Coop">coop-catch</monitor>
+    <slider x="5" step="1" y="55" max="15" width="305" display="nb-cooperatif" height="50" min="0" direction="Horizontal" default="7.0" variable="nb-cooperatif"></slider>
+    <slider x="5" step="1" y="110" max="15" width="305" display="nb-egoiste" height="50" min="0" direction="Horizontal" default="7.0" variable="nb-egoiste"></slider>
+    <slider x="5" step="1" y="165" max="15" width="305" display="nb-aleatoire" height="50" min="0" direction="Horizontal" default="7.0" variable="nb-aleatoire"></slider>
+    <slider x="5" step="0.05" y="220" max="0.3" width="305" display="growth-rate" height="50" min="0.05" direction="Horizontal" default="0.15" variable="growth-rate"></slider>
+    <slider x="5" step="1" y="275" max="30" width="305" display="max-fish-per-patch" height="50" min="3" direction="Horizontal" default="7.0" variable="max-fish-per-patch"></slider>
+    <monitor x="110" precision="0" y="335" height="60" fontSize="11" width="100" display="Saison">season-status</monitor>
+    <monitor x="215" precision="0" y="335" height="60" fontSize="11" width="100" display="Annee">year</monitor>
+    <monitor x="160" precision="1" y="400" height="60" fontSize="11" width="150" display="Stock %">stock-pct</monitor>
+    <monitor x="10" precision="0" y="400" height="60" fontSize="11" width="145" display="Poissons total">total-fish-report</monitor>
+    <monitor x="5" precision="0" y="335" height="60" fontSize="11" width="100" display="Mois">month-name</monitor>
+  </widgets>
+  <info></info>
+  <turtleShapes>
+    <shape name="default" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="5"></point>
+        <point x="40" y="250"></point>
+        <point x="150" y="205"></point>
+        <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="boat" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="10"></point>
+        <point x="60" y="200"></point>
+        <point x="150" y="175"></point>
+        <point x="240" y="200"></point>
+      </polygon>
+      <rectangle endX="165" startY="175" marked="false" color="-1920102913" endY="230" startX="135" filled="true"></rectangle>
+    </shape>
+    <shape name="boat top" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="1"></point>
+        <point x="137" y="18"></point>
+        <point x="123" y="46"></point>
+        <point x="110" y="87"></point>
+        <point x="102" y="150"></point>
+        <point x="106" y="208"></point>
+        <point x="114" y="258"></point>
+        <point x="123" y="286"></point>
+        <point x="175" y="287"></point>
+        <point x="183" y="258"></point>
+        <point x="193" y="209"></point>
+        <point x="198" y="150"></point>
+        <point x="191" y="87"></point>
+        <point x="178" y="46"></point>
+        <point x="163" y="17"></point>
+      </polygon>
+      <rectangle endX="170" startY="92" marked="false" color="255" endY="178" startX="129" filled="false"></rectangle>
+      <rectangle endX="180" startY="63" marked="false" color="255" endY="93" startX="120" filled="false"></rectangle>
+      <rectangle endX="165" startY="89" marked="true" color="-1920102913" endY="165" startX="133" filled="true"></rectangle>
+      <polygon color="1422181631" filled="true" marked="false">
+        <point x="150" y="60"></point>
+        <point x="105" y="105"></point>
+        <point x="150" y="90"></point>
+        <point x="195" y="105"></point>
+      </polygon>
+      <polygon color="255" filled="false" marked="false">
+        <point x="150" y="60"></point>
+        <point x="105" y="105"></point>
+        <point x="150" y="90"></point>
+        <point x="195" y="105"></point>
+      </polygon>
+      <rectangle endX="165" startY="178" marked="false" color="255" endY="262" startX="135" filled="false"></rectangle>
+      <polygon color="255" filled="false" marked="false">
+        <point x="134" y="262"></point>
+        <point x="144" y="286"></point>
+        <point x="158" y="286"></point>
+        <point x="166" y="262"></point>
+      </polygon>
+      <line endX="171" startY="149" marked="false" color="255" endY="149" startX="129"></line>
+      <line endX="188" startY="262" marked="false" color="255" endY="252" startX="166"></line>
+      <line endX="112" startY="262" marked="false" color="255" endY="252" startX="134"></line>
+      <line endX="149" startY="2" marked="false" color="255" endY="62" startX="150"></line>
+    </shape>
+  </turtleShapes>
+  <linkShapes>
+    <shape name="default" curviness="0.0">
+      <lines>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+  </linkShapes>
+  <previewCommands>setup repeat 75 [ go ]</previewCommands>
+</model>
