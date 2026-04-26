@@ -1,3 +1,4 @@
+![NetLogo](https://img.shields.io/badge/netlogo-%23E15950.svg?style=for-the-badge&logoColor=white)
 # Simulation de Pêche en Mer (NetLogo)
 
 ## Description
